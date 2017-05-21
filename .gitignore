@@ -57,3 +57,11 @@ typings/
 # dotenv environment variables file
 .env
 
+# OSX ignores
+.DS_Store
+
+
+### User ignores
+export
+output
+*.txt

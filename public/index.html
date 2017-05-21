@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>NBA Playoff Stats</title>
+		<!-- jQuery -->
+		<script src="https://code.jquery.com/jquery-1.12.4.min.js"
+			integrity="sha256-ZosEbRLbNQzLpnKIkEdrPv7lOy9C27hHQ+Xp8a4MxAQ="
+			crossorigin="anonymous">
+		</script>
+		<!-- Bootstrap -->
+		<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" />
+		<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" 
+			integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS"
+			crossorigin="anonymous">
+		</script>
+		<!-- Underscore -->
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.8.3/underscore-min.js"></script>
+		<!-- Plotly -->
+		<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+		<style>
+			footer {
+				background-color: #2a2730;
+				padding: 50px 0;
+				margin-top: 100px;
+				color: #ddd;
+			}
+
+			footer a {
+				color: #99979c;
+			}
+
+			footer a:hover {
+				color: #aaa;
+			}
+
+			.plot {
+				height: 450px;
+				background: #f6f6f6;
+				border: 4px dotted #ccc;
+				border-radius: 8px;
+				position: relative;
+			}
+
+			.plot.js-plotly-plot {
+				border: none;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="container">
+			<h1>
+				NBA Playoffs
+				<small>(2010 - 2017)</small>
+			</h1>
+
+			<!--<h3>Point differential swing</h3>
+			<div id="pt-swing" class="plot"></div>-->
+
+			<h3>Point differential by year</h3>
+			<div id="pt-diff" class="plot">
+				<!-- Plotly chart -->
+			</div>
+
+			<h3>Point differential by round</h3>
+			<div id="pt-diff-round" class="plot"></div>
+
+			<h3>Home advantage by round</h3>
+			<div id="pt-diff-home" class="plot"></div>
+
+			<h3>
+				Number of blowouts by year 
+				<br><small>(blowout = win by >15 points)</small>
+			</h3>
+			<div id="blowouts" class="plot"></div>
+
+			<h3>Percentage of blowouts by year</h3>
+			<div id="blowoutPerc" class="plot"></div>
+		</div>
+
+		<footer>
+			<div class="container">
+				<p>Box score data from <a target="_blank" href="http://www.basketball-reference.com/">basketball-reference.com</a>.</p>
+				<div>Code available on github.</div>
+			</div>
+		</footer>
+
+
+		<!-- Fetch data and load charts-->
+		<script>
+			window.supportedYears = ['2010', '2011', '2012', '2013', '2014', '2015', '2016', '2017'];
+
+			var requests = supportedYears.map(function (year) {
+				return $.get('/stats/' + year)
+					.then(function (data) { return data; });
+			});
+
+			$.when.apply($, requests).then(function () {
+				var stats = [].slice.call(arguments);
+
+				console.log(stats);
+
+				// Convert into plotly definition
+				var boxPlotData = stats.map(function (year) {
+					return {
+						y: year.ptsDiffRaw,
+						name: year.year,
+						type: 'box'
+					};
+				});
+
+				Plotly.newPlot('pt-diff', boxPlotData);
+
+
+				// Get number of blowouts per year
+				var barPlotData = [
+					{
+						x: _.pluck(stats, 'year'),
+						y: _.pluck(stats, 'blowouts'),
+						type: 'bar'
+					}
+				];
+
+				var blowoutPerc = [
+					{
+						name: 'Blowouts',
+						x: _.pluck(stats, 'year'),
+						y: _.pluck(stats, 'blowouts'),
+						text: _.pluck(stats, 'blowouts'),
+						hoverinfo: 'text',
+						type: 'bar',
+						marker: {
+							color: '#326CCC'
+						}
+					},
+					{
+						name: 'Games Played',
+						x: _.pluck(stats, 'year'),
+						y: _.pluck(stats, 'gameCount').map((count, i) => count - stats[i].blowouts),
+						text: _.pluck(stats, 'gameCount'),
+						hoverinfo: 'text',
+						type: 'bar',
+						marker: {
+							color: '#8BB6FF'
+						}
+					}
+				];
+
+				var annotations = stats.map(function (year) {
+					return {
+						x: year.year,
+						y: year.blowouts,
+						text: year.blowouts,
+						xanchor: 'center',
+						yanchor: 'bottom',
+						showarrow: false
+					};
+				});
+
+				Plotly.newPlot('blowouts', barPlotData, {
+					annotations: annotations
+				});
+
+				Plotly.newPlot('blowoutPerc', blowoutPerc, {					
+					barmode: 'stack',
+				});
+			});
+			
+		</script>
+		<script>
+			var requests = supportedYears.map(function (year) {
+				return $.get('/stats/' + year + '?group=round')
+					.then(function (data) { return data; });
+			});
+
+			var roundNames = {
+				0: 'First Round',
+				1: 'Conf Semis',
+				2: 'Conf Finals',
+				3: 'Finals'
+			}
+
+			// Group stats by round
+			$.when.apply($, requests).then(function () {
+				var stats = [].slice.call(arguments);
+
+				console.log('By round:', stats);
+
+				var rounds = _.chain(stats)
+					.flatten()
+					.groupBy(function (set) {
+						return set.round;
+					})
+					.map(function (years, round) {
+						return {
+							years: years,
+							roundName: roundNames[round - 1]
+						};
+					})
+					.value();
+
+				// Calculate point difference by round
+				var diffRound = rounds
+					.map(function (data) {
+						return {
+							y: _.flatten(_.pluck(data.years, 'ptsDiffRaw')),
+							name: data.roundName,
+							type: 'box'
+						};
+					});
+
+				// Calculate point difference for home team by round
+				var homeDiff = rounds
+					.map(function (data) {
+						return {
+							y: _.flatten(_.pluck(data.years, 'ptsDiffHome')),
+							name: data.roundName,
+							type: 'box'
+						};
+					});
+
+				Plotly.newPlot('pt-diff-round', diffRound);
+				Plotly.newPlot('pt-diff-home', homeDiff);
+			});
+		</script>
+	</body>
+</html>
